@@ -1,0 +1,145 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+function readProjectFile(relativePath: string): string {
+  return readFileSync(join(process.cwd(), relativePath), "utf8").replaceAll("\r\n", "\n");
+}
+
+const route = readProjectFile("src/app/api/records/route.ts");
+const form = readProjectFile("src/components/DailyRecordForm.tsx");
+const caregiverHome = readProjectFile("src/app/cuidador/page.tsx");
+const caregiverEntryPage = readProjectFile("src/app/cuidador/paciente/[id]/registro/page.tsx");
+const caregiverHistoryPage = readProjectFile("src/app/cuidador/paciente/[id]/historico/page.tsx");
+
+function sectionBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0) throw new Error(`Seção não encontrada: ${start}`);
+  return source.slice(startIndex, endIndex);
+}
+
+describe("RECORD-02 contrato de PATCH e ciclo de vida da foto", () => {
+  const parsedFields = sectionBetween(route, "function parseRecordFields", "function isPhotoRemovalRequested");
+  const photoRemoval = sectionBetween(route, "function isPhotoRemovalRequested", "function photoFieldsForPatch");
+  const photoPatch = sectionBetween(route, "function photoFieldsForPatch", "function rateLimitedResponse");
+  const createBranch = sectionBetween(route, "if (mode === \"create\")", "if (!recordId)");
+  const updateCall = sectionBetween(route, "const updated = await updateRecord(", "if (!updated)");
+
+  it("preserva a foto quando o PATCH não recebe campo de foto", () => {
+    expect(parsedFields).not.toContain("photo_data");
+    expect(photoPatch).toContain("return {};");
+    expect(route).toContain("...photoFieldsForPatch(form, photo)");
+  });
+
+  it("substitui a foto somente quando um novo arquivo foi fornecido", () => {
+    expect(photoPatch).toContain("if (photo.provided) return { photo_data: photo.data };");
+    expect(photoPatch).toContain("if (photo.provided)");
+    expect(photoPatch).not.toContain("if (photo.data)");
+  });
+
+  it("remove a foto somente com intenção explícita de remoção", () => {
+    expect(photoPatch).toContain("if (isPhotoRemovalRequested(form)) return { photo_data: null };");
+    expect(photoRemoval).toContain('value === "on" || value === "true"');
+    expect(route).not.toContain('form.get("remove_photo") === "on" || form.get("remove_photo") === "true"');
+  });
+
+  it("mantém os limites existentes de upload e valida assinatura do arquivo", () => {
+    expect(route).toContain("const MAX_PHOTO_BYTES = 3 * 1024 * 1024;");
+    expect(route).toContain('new Set(["image/jpeg", "image/png", "image/webp"])');
+    expect(route).toContain("if (photo.size > MAX_PHOTO_BYTES)");
+    expect(route).toContain("validImageSignature(photo.type, bytes)");
+  });
+
+  it("mantém POST e PATCH separados, sem criar registro no caminho de edição", () => {
+    expect(route).toContain('export async function POST(req: NextRequest) {\n  return saveRecord(req, "create");');
+    expect(route).toContain('export async function PATCH(req: NextRequest) {\n  return saveRecord(req, "update");');
+    expect(createBranch).toContain("createRecord");
+    expect(updateCall).not.toContain("createRecord");
+    expect(route).toContain('if (!recordId) return NextResponse.json({ error: "Registro não informado." }, { status: 400 });');
+    expect(route).toContain("const updated = await updateRecord(");
+  });
+});
+
+describe("TEST-REC-01 contrato do rate limit", () => {
+  it("valida, autoriza, lê a foto e confirma ownership antes de consumir o limite", () => {
+    const consumeIndex = route.indexOf("const rate = await consumeRateLimit");
+    expect(consumeIndex).toBeGreaterThan(0);
+    expect(route.indexOf("isCaregiverAssignedToPatient(session.userId, patientId)")).toBeLessThan(consumeIndex);
+    expect(route.indexOf("parseRecordFields(form)")).toBeLessThan(consumeIndex);
+    expect(route.indexOf("const photo = await readPhoto(form)")).toBeLessThan(consumeIndex);
+
+    const ownershipBlock = sectionBetween(route, 'if (mode === "update") {', "const rate = await consumeRateLimit");
+    expect(ownershipBlock).toContain("existing = await getRecord(recordId);");
+    expect(ownershipBlock).toContain("existing.patient_id !== patientId");
+    expect(ownershipBlock).toContain("existing.caregiver_user_id !== session.userId");
+  });
+
+  it("só cria ou atualiza depois de um rate limit permitido", () => {
+    const consumeIndex = route.indexOf("const rate = await consumeRateLimit");
+    expect(route.indexOf("await createRecord(")).toBeGreaterThan(consumeIndex);
+    expect(route.indexOf("await updateRecord(")).toBeGreaterThan(consumeIndex);
+
+    const decision = sectionBetween(route, "const rate = await consumeRateLimit", 'if (mode === "create")');
+    expect(decision).toContain('if (rate.reason === "provider_unavailable") return rateLimitUnavailableResponse();');
+    expect(decision).toContain("if (!rate.allowed) return rateLimitedResponse(rate.retryAfterSeconds);");
+  });
+
+  it("responde 503 genérico ao provider indisponível e mantém 429 com Retry-After para limite real", () => {
+    const decision = sectionBetween(route, "const rate = await consumeRateLimit", 'if (mode === "create")');
+    const unavailable = sectionBetween(decision, 'if (rate.reason === "provider_unavailable")', "if (!rate.allowed)");
+    const exceeded = decision.slice(decision.indexOf("if (!rate.allowed)"));
+
+    expect(unavailable).toContain("rateLimitUnavailableResponse()");
+    expect(unavailable).not.toContain("rateLimitedResponse");
+    expect(unavailable).not.toContain("rate.retryAfterSeconds");
+    expect(route).toContain('function rateLimitUnavailableResponse()');
+    expect(route).toContain(genericUnavailableResponse());
+    expect(route).toContain("{ status: 503 }");
+    expect(exceeded).toContain("rateLimitedResponse(rate.retryAfterSeconds)");
+    expect(route).toContain('headers: { "Retry-After": String(retryAfterSeconds) }');
+    expect(unavailable).not.toContain("error.message");
+  });
+});
+
+function genericUnavailableResponse(): string {
+  return 'error: "O serviço está temporariamente indisponível. Tente novamente em alguns instantes."';
+}
+
+describe("RECORD-02 intenção enviada pela UI", () => {
+  it("usa PATCH e record_id ao editar o registro existente", () => {
+    expect(form).toContain('method: isEditing ? "PATCH" : "POST"');
+    expect(form).toContain('if (initialRecord?.id) formData.set("record_id", initialRecord.id);');
+    expect(form).toContain("router.push(\"/cuidador\");");
+    expect(form).toContain("router.refresh();");
+  });
+
+  it("mantém remoção e substituição mutuamente exclusivas no formulário", () => {
+    expect(form).toContain('name="remove_photo"');
+    expect(form).toContain("checked={removePhoto}");
+    expect(form).toContain("onChange={(event) => setRemovePhoto(event.target.checked)}");
+    expect(form).toContain("if (event.target.files?.length) setRemovePhoto(false);");
+  });
+});
+
+describe("RECORD-03 múltiplas checagens no mesmo dia", () => {
+  it("sempre abre um novo registro a partir da lista de pacientes", () => {
+    expect(caregiverHome).toContain('href={`/cuidador/paciente/${patient.id}/registro`}');
+    expect(caregiverHome).toContain(">\n                  Novo registro\n");
+    expect(caregiverHome).not.toContain("filledToday");
+    expect(caregiverHome).not.toContain("Editar registro de hoje");
+  });
+
+  it("só entra em edição quando a URL informa um recordId", () => {
+    expect(caregiverEntryPage).toContain("const requestedRecord = requestedRecordId ? await getRecord(requestedRecordId) : undefined;");
+    expect(caregiverEntryPage).toContain("const existingRecord = requestedRecord;");
+    expect(caregiverEntryPage).not.toContain("getRecordForCaregiverOnDate");
+  });
+
+  it("agrupa por data sem colapsar as checagens individuais", () => {
+    expect(caregiverHistoryPage).toContain("function groupRecordsByDate");
+    expect(caregiverHistoryPage).toContain("{recordsForDate.length} {recordsForDate.length === 1 ? \"checagem\" : \"checagens\"}");
+    expect(caregiverHistoryPage).toContain("key={record.id}");
+    expect(caregiverHistoryPage).toContain("showDate={false}");
+  });
+});

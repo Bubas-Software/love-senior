@@ -1,0 +1,16 @@
+import{r as e}from"./rolldown-runtime-S-ySWqyJ.js";import{i as t,r as n}from"./framework-jyvnLqbr.js";import{t as r}from"./navigation-rbaamJjB.js";var i=e(t(),1),a=n();function o({family:e}){let t=r(),[n,o]=(0,i.useState)(!1),[s,c]=(0,i.useState)(!1),[l,u]=(0,i.useState)(null),[d,f]=(0,i.useState)(!1);async function p(n){n.preventDefault(),c(!0),u(null),f(!1);let r=new FormData(n.currentTarget);try{let n=await fetch(`/api/admin/families/${e.id}`,{method:`PATCH`,headers:{"Content-Type":`application/json`},body:JSON.stringify({name:r.get(`name`),phone:r.get(`phone`)})}),i=await n.json().catch(()=>({}));if(!n.ok){u(i.error||`Não foi possível salvar os dados da família.`);return}f(!0),o(!1),t.refresh()}catch{u(`Erro de conexão. Tente novamente.`)}finally{c(!1)}}return n?(0,a.jsxs)(`form`,{onSubmit:p,className:`mt-5 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] p-4`,children:[(0,a.jsxs)(`div`,{children:[(0,a.jsx)(`label`,{htmlFor:`family-name-${e.id}`,className:`block text-xs font-medium text-[var(--muted)]`,children:`Nome da família *`}),(0,a.jsx)(`input`,{id:`family-name-${e.id}`,name:`name`,required:!0,defaultValue:e.name,className:`input mt-1`})]}),(0,a.jsxs)(`div`,{children:[(0,a.jsx)(`label`,{htmlFor:`family-phone-${e.id}`,className:`block text-xs font-medium text-[var(--muted)]`,children:`Telefone`}),(0,a.jsx)(`input`,{id:`family-phone-${e.id}`,name:`phone`,defaultValue:e.phone||``,className:`input mt-1`})]}),(0,a.jsx)(`div`,{children:(0,a.jsxs)(`p`,{className:`text-xs leading-5 text-[var(--muted-2)]`,children:[`E-mail de acesso: `,(0,a.jsx)(`span`,{className:`break-words`,children:e.email}),`. Para preservar o acesso, o e-mail e a senha não são editados nesta tela.`]})}),l?(0,a.jsx)(`p`,{className:`text-sm text-[var(--status-critical)]`,role:`alert`,children:l}):null,(0,a.jsxs)(`div`,{className:`flex flex-wrap gap-3`,children:[(0,a.jsx)(`button`,{type:`submit`,disabled:s,className:`rounded-lg bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--brand-dark)] disabled:opacity-50`,children:s?`Salvando...`:`Salvar alterações`}),(0,a.jsx)(`button`,{type:`button`,disabled:s,onClick:()=>o(!1),className:`rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--foreground)] hover:bg-black/[0.03] disabled:opacity-50`,children:`Cancelar`})]}),(0,a.jsx)(`style`,{jsx:!0,children:`
+        .input {
+          width: 100%;
+          border-radius: 0.5rem;
+          border: 1px solid var(--border);
+          background: white;
+          padding: 0.625rem 0.75rem;
+          font-size: 0.875rem;
+          color: var(--foreground);
+        }
+        .input:focus {
+          outline: none;
+          border-color: var(--brand);
+          box-shadow: 0 0 0 3px var(--brand-light);
+        }
+      `})]}):(0,a.jsxs)(`div`,{className:`mt-5`,children:[(0,a.jsx)(`button`,{type:`button`,onClick:()=>{u(null),f(!1),o(!0)},className:`rounded-lg border border-[var(--border-strong)] px-4 py-2 text-sm font-semibold text-[var(--brand-dark)] hover:border-[var(--brand)] hover:bg-[var(--brand-light)]`,children:`Editar dados`}),d?(0,a.jsx)(`p`,{className:`mt-2 text-sm text-[var(--status-good)]`,role:`status`,children:`Alterações salvas.`}):null]})}export{o as FamilyEditForm};

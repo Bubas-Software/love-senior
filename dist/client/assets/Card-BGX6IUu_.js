@@ -1,0 +1,1 @@
+import{r as e}from"./framework-jyvnLqbr.js";var t=e();function n({children:e,className:n=``}){return(0,t.jsx)(`div`,{className:`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[0_12px_35px_rgba(8,54,49,0.05)] ${n}`,children:e})}export{n as t};
